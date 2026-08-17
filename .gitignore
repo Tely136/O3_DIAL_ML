@@ -45,3 +45,5 @@ codegen/
 # Anything in signal_data folder
 signal_data*
 
+# Ignore training results for now
+Results*
