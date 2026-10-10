@@ -47,3 +47,6 @@ signal_data*
 
 # Ignore training results for now
 Results*
+
+# MAT files
+*.mat
