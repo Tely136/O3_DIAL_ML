@@ -7,29 +7,10 @@ clc; clearvars;
 root_dir = "..";
 addpath(genpath(fullfile(root_dir,"O3_DIAL_ML/functions")));
 %%
-[signals_train, signals_sim_train, profiles_train, signals_validation, signals_sim_validation, profiles_validation, signals_test, signals_sim_test, profiles_test, net] = init_sim; %[output:7a84c383]
+[signals_train, profiles_train, signals_validation, profiles_validation, signals_test, profiles_test, net] = init_sim; %[output:7a84c383]
 %%
-load(".\dir\GLASS_training_data.mat");
-
-n_pof = size(signals_train,4);
-id = 1; %[control:slider:7227]{"position":[6,7]}
-
-figure %[output:02ec0711]
-plot(alt, signals_train(:,1,1,id),'DisplayName','Real 287 nm') % alt, 1, lambda, profile %[output:02ec0711]
-hold on %[output:02ec0711]
-plot(alt, signals_train(:,1,2,id),'DisplayName','Real 299 nm') %[output:02ec0711]
-plot(alt, signals_sim_train(:,1,1,id),'DisplayName','Sim 287 nm') %[output:02ec0711]
-plot(alt, signals_sim_train(:,1,2,id),'DisplayName','Sim 299 nm') %[output:02ec0711]
-hold off %[output:02ec0711]
-legend %[output:02ec0711]
-grid on %[output:02ec0711]
-figure; %[output:5b693160]
-plot(alt,signals_sim_train(:,1,1,id)./signals_train(:,1,1,id),'DisplayName','Sim/Real 287 nm'); %[output:5b693160]
-hold on %[output:5b693160]
-plot(alt,signals_sim_train(:,1,2,id)./signals_train(:,1,2,id),'DisplayName','Sim/Real 299 nm'); %[output:5b693160]
-hold off %[output:5b693160]
-legend %[output:5b693160]
-grid on %[output:5b693160]
+%[output:02ec0711]
+%[output:5b693160]
 %%
 options = trainingOptions("sgdm", ...
     MaxEpochs=1000, ...
@@ -41,35 +22,31 @@ options_sim = options;
 options_sim.ValidationData = {signals_sim_validation, profiles_validation};
 
 nettrained = trainnet(signals_train,profiles_train',net,"mse", options); %[output:653c3db9]
-nettrained_sim = trainnet(signals_sim_train,profiles_train',net,"mse", options_sim);
 %%
-n_test = size(profiles_test,1);
-v = 1; %[control:slider:6af6]{"position":[5,6]}
-X = signals_test(:,:,:,v);
-X_sim = signals_sim_test(:,:,:,v);
-
-s = predict(nettrained, X);
-s_sim = predict(nettrained_sim, X_sim);
-
-s_true = profiles_test(v,:);
-
-lw = 1;
-figure('Position',[0, 0, 800, 600])
-plot(s,alt./1000,'DisplayName','predicted real','LineWidth',lw)
-hold on
-plot(s_sim,alt./1000,'DisplayName','predicted sim','LineWidth',lw)
-plot(s_true,alt./1000,'DisplayName','true','LineWidth',lw)
-hold off
-legend
-grid on
+% n_test = size(profiles_test,1);
+% v = 1; %[control:slider:6af6]{"position":[7,8]}
+% X = signals_test(:,:,:,v);
+% X_sim = signals_sim_test(:,:,:,v);
+% 
+% s = predict(nettrained, X);
+% s_sim = predict(nettrained_sim, X_sim);
+% 
+% s_true = profiles_test(v,:);
+% 
+% lw = 1;
+% figure('Position',[0, 0, 800, 600])
+% plot(s,alt./1000,'DisplayName','predicted real','LineWidth',lw)
+% hold on
+% plot(s_sim,alt./1000,'DisplayName','predicted sim','LineWidth',lw)
+% plot(s_true,alt./1000,'DisplayName','true','LineWidth',lw)
+% hold off
+% legend
+% grid on
 
 %[appendix]{"version":"1.0"}
 %---
 %[metadata:view]
 %   data: {"layout":"inline","rightPanelPercent":40}
-%---
-%[control:slider:7227]
-%   data: {"defaultValue":1,"label":"id","max":208,"maxLinkedVariable":"n_pof","min":1,"run":"Section","runOn":"ValueChanged","step":1}
 %---
 %[control:slider:6af6]
 %   data: {"defaultValue":1,"label":"v","max":13,"maxLinkedVariable":"n_test","min":1,"run":"Section","runOn":"ValueChanging","step":1}
