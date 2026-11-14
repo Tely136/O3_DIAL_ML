@@ -20,6 +20,7 @@ check = train_ozone_cnn(MaxEpochs=2, ShowPlots=false, ...
 
 % Alternatively, also verify day separation, saved inference, and rejection
 % of an invalid input (this performs its own two-epoch run).
+addpath('tests');
 check_pipeline;
 
 % Then train with validation-based early stopping (up to 400 epochs).
@@ -31,24 +32,32 @@ The files should be named `o3_processed_YYYYMMDD_profN.mat` and each contain
 one vector for each of `mg_on_fr`, `mg_off_fr`, and `N_o3_fr_mg`.
 The input units and processing must be consistent across all files.
 
-**Verify the altitude convention before interpreting results.** The default
-matches `ccny_train.m`: index 1 means 1 metre, with 1 metre between indices.
-The training grid spans 500–2500 m, resampled to 200 bins. For another grid:
+The stored profiles have been checked against their processed source data:
+index 1 is 3.75 metres, with 3.75 metres between bins. The default retrieval
+interval is now **1000–2500 m**, resampled to 200 bins. For another interval:
 
 ```matlab
-result = train_ozone_cnn(FirstBinAltitude_m=0, BinSpacing_m=3.75, ...
-    AltitudeBounds_m=[500 2500], NumBins=200);
+result = train_ozone_cnn(AltitudeBounds_m=[1250 2500], NumBins=200);
 ```
 
-Those settings describe the **stored processed vectors**, which need not have
-the same spacing as the raw instrument bins. Changing the settings cannot
-correct an incorrectly identified physical coordinate.
+The 500–2500 m interval rejected all 80 existing far-range profiles because
+the signals contain invalid values at the lower heights. The 1000–2500 m
+interval retains 77 profiles across all 20 days; 1250–2500 m retains all 80.
+These checks establish numerical validity, not independent verification of
+overlap correction or retrieval accuracy. For different input data, supply
+its actual `FirstBinAltitude_m` and `BinSpacing_m`.
 
 ## Read the code in this order
 
-1. `train_ozone_cnn.m`: numbered sections show the complete experiment.
+1. `train_ozone_cnn.m`: sections show the complete experiment.
 2. `prepare_lidar_input.m`: shared signal checks, interpolation, and logarithms.
 3. `predict_ozone_cnn.m`: how to apply the saved experiment to a new measurement.
+4. `plot_test_profiles.m`: compare saved test predictions without retraining.
+
+The three helpers are retained because preprocessing must match between
+training and prediction, new measurements need an inference entry point, and
+saved results should be viewable without training again. The optional
+`check_pipeline.m` has moved to `tests/`; training does not depend on it.
 
 The main arrays have shape **altitude bins × channels × profiles** (`TCB` in
 MATLAB). By default there are six input channels and one target channel. The sequence
@@ -58,7 +67,7 @@ The six features are log(on), log(off), log(off/on), slopes of that log ratio
 after 5-bin and 15-bin moving averages, and altitude in kilometres. The ratio
 and slopes make small differential features easier to access than learning
 them solely from two correlated signal channels. At the default grid, those
-smoothing windows cover roughly 50 and 151 metres. These are input features,
+smoothing windows cover roughly 38 and 113 metres. These are input features,
 not a calibrated physical DIAL inversion. They contain no ozone labels.
 `FeatureSet="basic"` uses only the two log signals for an input-feature ablation.
 All channels are standardized using the training set. Prediction automatically
@@ -74,7 +83,7 @@ test, and new measurements reuse those exact training statistics.
 The four convolution layers learn patterns across nearby heights and both
 wavelength channels. ReLU introduces nonlinearity. The last convolution
 produces one value per height; no pooling removes altitude bins. With the
-default grid the convolutional receptive field is 61 bins, spanning about 603 m
+default grid the convolutional receptive field is 61 bins, spanning about 452 m
 (the smoothed input features add further context). Dilation factors 1, 2, 4,
 and 8 increase context without downsampling. This is a
 context window, not a claim of physical retrieval resolution. Zero padding
@@ -106,11 +115,14 @@ CNN with the saved **training mean profile** baseline: a useful learned
 retrieval should improve on simply predicting a typical profile. A two-epoch
 check is not expected to do so.
 
-`outputs/structured/` contains the revised model, normalization, settings, training history,
+`outputs/correct_altitude/` contains the current model, normalization, settings, training history,
 held-out references/predictions, split manifest, rejection report, metrics,
 and plots of all test profiles when plots are enabled. Reusing an output folder replaces
 its previous run, so choose a different `OutputFolder` for each experiment.
-The original `outputs/ozone_cnn.mat` remains available for comparison.
+The previous `outputs/ozone_cnn.mat` and `outputs/structured/ozone_cnn.mat`
+remain available. Their altitude coordinates used the incorrect 1 m convention:
+the actual interval was 1875–9375 m. They must not be interpreted as physical
+500–2500 m retrievals.
 
 The result also saves validation reference/prediction arrays, standardized
 log MSE, adjacent-bin difference RMSE, and a structure ratio (RMS predicted
@@ -128,7 +140,7 @@ result = train_ozone_cnn(MaxEpochs=600, ValidationPatience=100, ...
     OutputFolder='outputs/experiment_02');
 ```
 
-On the existing 80 profiles with seed 7 and the same day split, the revision
+On the earlier 80-profile experiment with the legacy coordinate convention, the revision
 reduced validation standardized log MSE from 0.581 to 0.355 and validation
 density RMSE from 1.71e17 to 1.21e17 m^-3. Validation structure ratio increased
 from 0.280 to 0.854. The best revised checkpoint was around epoch 21; training
@@ -137,6 +149,14 @@ training alone was not the solution. After this change was fixed, test RMSE
 was 1.32e17 versus the original 2.05e17 m^-3 on the same 22 profiles. These are
 one-split results, not evidence of robustness across seasons or instruments.
 `outputs/structured/validation_comparison.csv` records the validation comparison.
+
+With the corrected grid and 1000–2500 m interval, the current run uses 47
+training, 8 validation, and 22 test profiles. It completed 400 epochs with
+validation standardized log MSE 0.0199 and test RMSE 4.61e16 m^-3, compared with
+1.82e17 m^-3 for the mean-profile baseline. Test MAE is 3.01e16 m^-3 and bias is
+5.99e14 m^-3. Validation structure ratio is 0.619: some fine structure remains
+underrepresented. Scores from the legacy and corrected intervals are not a
+controlled before/after comparison because the physical retrieval interval changed.
 
 The existing `profiles` folder was already quality filtered upstream. These
 scripts check numerical validity, but cannot recreate unavailable merge-fit
@@ -153,13 +173,13 @@ models from test scores makes that test set part of model development.
 From this folder, display all test profiles in pages of six panels:
 
 ```matlab
-plot_test_profiles;  % Prefers outputs/structured/ozone_cnn.mat; falls back to original
+plot_test_profiles;  % Prefers outputs/correct_altitude/ozone_cnn.mat
 
 % Or use a result already in your workspace:
 plot_test_profiles(result);
 
 % Choose particular test profiles and save plots plus per-profile metrics:
-metrics = plot_test_profiles('outputs/structured/ozone_cnn.mat', ...
+metrics = plot_test_profiles('outputs/correct_altitude/ozone_cnn.mat', ...
     ProfileIndices=[1 3 5 8], OutputFolder='outputs/comparison');
 ```
 
@@ -175,8 +195,8 @@ and saves every page. Set `ProfilesPerFigure` to change the page size.
 
 ```matlab
 s = load('path_to_new_profile.mat');
-z = (1:numel(s.mg_on_fr))'; % Replace with the actual stored altitude grid!
-[N, zOut] = predict_ozone_cnn('outputs/structured/ozone_cnn.mat', ...
+z = (1:numel(s.mg_on_fr))' * 3.75; % Use the actual stored altitude grid.
+[N, zOut] = predict_ozone_cnn('outputs/correct_altitude/ozone_cnn.mat', ...
     s.mg_on_fr, s.mg_off_fr, z);
 plot(N, zOut);
 xlabel('Ozone number density (m^{-3})'); ylabel('Altitude (m)');

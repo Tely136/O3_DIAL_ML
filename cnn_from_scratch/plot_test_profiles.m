@@ -1,108 +1,102 @@
-function [profileMetrics, figures] = plot_test_profiles(resultOrFile, options)
-%PLOT_TEST_PROFILES Compare reference and CNN retrievals on held-out profiles.
-% No retraining: use either a result struct or a saved ozone_cnn.mat file.
-%   plot_test_profiles(result)
-%   plot_test_profiles('outputs/ozone_cnn.mat')
-%   plot_test_profiles(result, ProfileIndices=[1 4 7], OutputFolder='plots')
-% Test indices refer to the rows of manifest with split == "test".
-
+function [profile_metrics,figures] = plot_test_profiles(result_or_file,options)
+% Plot held-out profiles from a result struct or a saved model file.
 arguments
-    resultOrFile = ""
-    options.ProfileIndices (1,:) double {mustBeInteger,mustBePositive} = []
-    options.ProfilesPerFigure (1,1) double {mustBeInteger,mustBePositive} = 6
+    result_or_file = ""
+    options.ProfileIndices (1,:) double = []
+    options.ProfilesPerFigure (1,1) double = 6
     options.OutputFolder (1,1) string = ""
     options.Visible (1,1) logical = true
 end
 
-if ~isstruct(resultOrFile) && string(resultOrFile) == ""
-    outputRoot = fullfile(fileparts(mfilename('fullpath')),'outputs');
-    resultOrFile = fullfile(outputRoot,'structured','ozone_cnn.mat');
-    if ~isfile(resultOrFile), resultOrFile = fullfile(outputRoot,'ozone_cnn.mat'); end
+%% Load results
+if ~isstruct(result_or_file) && string(result_or_file) == ""
+    output_folder = fullfile(fileparts(mfilename("fullpath")),"outputs");
+    candidates = [fullfile(output_folder,"correct_altitude","ozone_cnn.mat"),fullfile(output_folder,"structured","ozone_cnn.mat"),fullfile(output_folder,"ozone_cnn.mat")];
+    result_or_file = candidates(find(isfile(candidates),1));
 end
-if isstruct(resultOrFile)
-    r = resultOrFile;
+if isstruct(result_or_file)
+    result = result_or_file;
 else
-    % Only load the evaluation arrays; the trained network is not needed.
-    r = load(resultOrFile, 'observed','predicted','altitude_m','manifest');
-    savedVariables = whos('-file',resultOrFile);
-    if any(strcmp({savedVariables.name},'baseline'))
-        savedBaseline = load(resultOrFile,'baseline');
-        r.baseline = savedBaseline.baseline;
+    result = load(result_or_file,"observed","predicted","altitude_m","manifest");
+    saved_variables = whos("-file",result_or_file);
+    if any(strcmp({saved_variables.name},"baseline"))
+        saved = load(result_or_file,"baseline");
+        result.baseline = saved.baseline;
     end
 end
-assert(isequal(size(r.observed),size(r.predicted)), ...
-    'Reference and prediction arrays must have the same shape.');
-nTest = size(r.observed,3);
-assert(nTest > 0, 'No held-out profiles available.');
-testRows = r.manifest(r.manifest.split == "test",:);
-assert(height(testRows) == nTest, 'Manifest does not match the test arrays.');
+
+test_rows = result.manifest(result.manifest.split == "test",:);
+n_test = size(result.observed,3);
 indices = options.ProfileIndices;
-if isempty(indices), indices = 1:nTest; end
-assert(all(indices <= nTest), 'ProfileIndices exceeds the number of test profiles.');
-
-% One metric row per test profile, including the source file for traceability.
-error = r.predicted-r.observed;
-testIndex = (1:nTest)';
-rmse = reshape(sqrt(mean(error.^2,1)),[],1);
-mae = reshape(mean(abs(error),1),[],1);
-bias = reshape(mean(error,1),[],1);
-profileMetrics = table(testIndex,testRows.paths,testRows.day,rmse,mae,bias, ...
-    VariableNames={'TestIndex','SourceFile','Day','RMSE','MAE','Bias'});
-disp(profileMetrics(indices,:));
-
-% Use the same axes across panels so the visual comparison is fair.
-values = [r.observed(:,:,indices),r.predicted(:,:,indices)];
-hasBaseline = isfield(r,'baseline');
-if hasBaseline
-    values = [values,r.baseline(:,:,indices)];
+if isempty(indices)
+    indices = 1:n_test;
 end
-xLimits = [min(values,[],'all'),max(values,[],'all')];
-margin = max(0.05*diff(xLimits),eps(max(abs(xLimits))));
-xLimits = xLimits+[-margin margin];
-visibility = 'off';
-if options.Visible, visibility = 'on'; end
+
+%% Metrics
+residual = result.predicted - result.observed;
+test_index = (1:n_test)';
+rmse = reshape(sqrt(mean(residual.^2,1)),[],1);
+mae = reshape(mean(abs(residual),1),[],1);
+bias = reshape(mean(residual,1),[],1);
+profile_metrics = table(test_index,test_rows.paths,test_rows.day,rmse,mae,bias,VariableNames=["TestIndex","SourceFile","Day","RMSE","MAE","Bias"]);
+disp(profile_metrics(indices,:));
+
+%% Shared axes
+has_baseline = isfield(result,"baseline");
+labels = ["Reference retrieval","CNN"];
+values = [result.observed(:,:,indices),result.predicted(:,:,indices)];
+if has_baseline
+    labels = ["Reference retrieval","CNN","Training mean"];
+    values = [values,result.baseline(:,:,indices)];
+end
+x_limits = [min(values,[],"all"),max(values,[],"all")];
+margin = max(0.05*diff(x_limits),eps(max(abs(x_limits))));
+x_limits = x_limits + [-margin margin];
+visibility = "off";
+if options.Visible
+    visibility = "on";
+end
 if options.OutputFolder ~= "" && ~isfolder(options.OutputFolder)
     mkdir(options.OutputFolder);
 end
-nPages = ceil(numel(indices)/options.ProfilesPerFigure);
-figures = gobjects(nPages,1);
-for page = 1:nPages
-    selected = indices((page-1)*options.ProfilesPerFigure+1: ...
-        min(page*options.ProfilesPerFigure,numel(indices)));
-    figures(page) = figure('Name',sprintf('Test profiles: page %d of %d',page,nPages), ...
-        'Visible',visibility,'Color','w','Position',[100 100 1200 750]);
-    nColumns = min(3,numel(selected));
-    layout = tiledlayout(figures(page),ceil(numel(selected)/nColumns),nColumns, ...
-        'TileSpacing','compact','Padding','compact');
+
+%% Profile plots
+n_pages = ceil(numel(indices)/options.ProfilesPerFigure);
+figures = gobjects(n_pages,1);
+for page = 1:n_pages
+    first = (page-1)*options.ProfilesPerFigure + 1;
+    last = min(page*options.ProfilesPerFigure,numel(indices));
+    selected = indices(first:last);
+    figures(page) = figure(Name=sprintf("Test profiles: page %d of %d",page,n_pages),Visible=visibility,Color="w",Position=[100 100 1200 750]);
+    n_columns = min(3,numel(selected));
+    layout = tiledlayout(figures(page),ceil(numel(selected)/n_columns),n_columns,TileSpacing="compact",Padding="compact");
+
     for i = selected
         ax = nexttile(layout);
-        plot(ax,r.observed(:,1,i),r.altitude_m,'k-', ...
-            r.predicted(:,1,i),r.altitude_m,'r--','LineWidth',1.2);
-        labels = {'Reference retrieval','CNN'};
-        if hasBaseline
-            hold(ax,'on');
-            plot(ax,r.baseline(:,1,i),r.altitude_m,'b:','LineWidth',1);
-            labels{end+1} = 'Training mean';
+        plot(ax,result.observed(:,1,i),result.altitude_m,"k-",result.predicted(:,1,i),result.altitude_m,"r--",LineWidth=1.2);
+        if has_baseline
+            hold(ax,"on");
+            plot(ax,result.baseline(:,1,i),result.altitude_m,"b:",LineWidth=1);
         end
-        xlim(ax,xLimits); ylim(ax,[min(r.altitude_m),max(r.altitude_m)]);
-        grid(ax,'on');
-        set(ax,'Color','w','XColor','k','YColor','k');
-        [~,source] = fileparts(testRows.paths(i));
-        title(ax,sprintf('Test %d | %s\nRMSE = %.3g',i,source,rmse(i)), ...
-            'Interpreter','none','Color','k');
-        xlabel(ax,'Ozone number density (m^{-3})','Color','k');
-        ylabel(ax,'Altitude (m)','Color','k');
+        xlim(ax,x_limits);
+        ylim(ax,[min(result.altitude_m),max(result.altitude_m)]);
+        grid(ax,"on");
+        set(ax,Color="w",XColor="k",YColor="k");
+        [~,source] = fileparts(test_rows.paths(i));
+        title(ax,sprintf("Test %d | %s\nRMSE = %.3g",i,source,rmse(i)),Interpreter="none",Color="k");
+        xlabel(ax,"Ozone number density (m^{-3})",Color="k");
+        ylabel(ax,"Altitude (m)",Color="k");
         if i == selected(1)
-            legend(ax,labels,'Location','best','Color','w','TextColor','k');
+            legend(ax,labels,Location="best",Color="w",TextColor="k");
         end
     end
-    title(layout,sprintf('Held-out ozone profiles | page %d of %d',page,nPages),'Color','k');
+
+    title(layout,sprintf("Held-out ozone profiles | page %d of %d",page,n_pages),Color="k");
     if options.OutputFolder ~= ""
-        exportgraphics(figures(page),fullfile(options.OutputFolder, ...
-            sprintf('test_profiles_%02d.png',page)),'Resolution',150,'BackgroundColor','white');
+        exportgraphics(figures(page),fullfile(options.OutputFolder,sprintf("test_profiles_%02d.png",page)),Resolution=150,BackgroundColor="white");
     end
 end
 if options.OutputFolder ~= ""
-    writetable(profileMetrics,fullfile(options.OutputFolder,'test_profile_metrics.csv'));
+    writetable(profile_metrics,fullfile(options.OutputFolder,"test_profile_metrics.csv"));
 end
 end
